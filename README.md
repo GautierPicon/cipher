@@ -21,6 +21,37 @@ uv sync
 uv run cipher --help
 ```
 
+## Commands reference
+
+### encrypt
+```bash
+cipher encrypt <file>
+cipher encrypt <file> -o <output>
+cipher encrypt <file> --overwrite
+cipher encrypt <file> -o <output> --overwrite
+```
+
+### decrypt
+```bash
+cipher decrypt <file.enc>
+cipher decrypt <file.enc> -o <output>
+cipher decrypt <file.enc> --overwrite
+cipher decrypt <file.enc> -o <output> --overwrite
+```
+
+### info
+```bash
+cipher info <file.enc>
+```
+
+### help
+```bash
+cipher --help
+cipher encrypt --help
+cipher decrypt --help
+cipher info --help
+```
+
 ## Usage
 
 ### Encrypt a file
