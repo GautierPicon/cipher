@@ -79,11 +79,11 @@ uv run cipher info secret.txt.enc
 
 ```
 ┌──────────────────────────────────────────────────┐
-│ MAGIC     (8 bytes)   "CIPHER01"                │
-│ ITERATIONS(4 bytes)   PBKDF2 iteration count    │
-│ SALT      (32 bytes)  random salt               │
-│ NONCE     (12 bytes)  AES-GCM nonce             │
-│ CIPHERTEXT + TAG GCM  (rest of file)            │
+│ MAGIC     (8 bytes)   "CIPHER01"                 │
+│ ITERATIONS(4 bytes)   PBKDF2 iteration count     │
+│ SALT      (32 bytes)  random salt                │
+│ NONCE     (12 bytes)  AES-GCM nonce              │
+│ CIPHERTEXT + TAG GCM  (rest of file)             │
 └──────────────────────────────────────────────────┘
 ```
 
