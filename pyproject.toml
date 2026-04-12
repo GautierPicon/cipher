@@ -1,6 +1,6 @@
 [project]
 name = "file-cipher"
-version = "0.2.0"
+version = "0.3.0"
 description = "Command-line tool for file encryption using AES-GCM"
 readme = "README.md"
 authors = [
