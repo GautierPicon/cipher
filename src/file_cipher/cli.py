@@ -1,13 +1,3 @@
-"""
-file-cipher — File encryption via AES-256-GCM
-==============================================
-Usage:
-    cipher encrypt secret.txt            # encrypt → secret.txt.enc
-    cipher decrypt secret.txt.enc        # decrypt → secret.txt
-    cipher encrypt doc.pdf -o safe.enc   # custom output
-    cipher info safe.enc                 # display metadata
-"""
-
 import os
 import struct
 import hashlib
@@ -34,14 +24,12 @@ app = typer.Typer(
 console = Console()
 
 # ── .enc format constants ────────────────────────────────────────────────────
-MAGIC       = b"CIPHER01"   # header to identify our files
-SALT_SIZE   = 32            # bytes for the PBKDF2 salt
-NONCE_SIZE  = 12            # bytes for the AES-GCM nonce (96 bits)
-PBKDF2_ITER = 480_000       # PBKDF2 iterations (NIST 2023 recommendation)
-KEY_SIZE    = 32            # AES-256 → 32-byte key
+MAGIC       = b"CIPHER01"
+SALT_SIZE   = 32
+NONCE_SIZE  = 12
+PBKDF2_ITER = 480_000
+KEY_SIZE    = 32
 
-# Binary header format:
-#   MAGIC (8) | iterations (4, big-endian) | salt (32) | nonce (12)
 HEADER_FMT  = f">8sI{SALT_SIZE}s{NONCE_SIZE}s"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)   # 56 bytes
 
@@ -49,7 +37,6 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)   # 56 bytes
 # ── Cryptographic functions ──────────────────────────────────────────────────
 
 def _derive_key(password: str, salt: bytes, iterations: int = PBKDF2_ITER) -> bytes:
-    """Derives an AES-256 key from a password via PBKDF2-SHA256."""
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=KEY_SIZE,
@@ -60,10 +47,6 @@ def _derive_key(password: str, salt: bytes, iterations: int = PBKDF2_ITER) -> by
 
 
 def _encrypt_data(plaintext: bytes, password: str, filename: str) -> bytes:
-    """Encrypts data and returns the full stream (header + ciphertext).
-    The original filename is embedded inside the encrypted payload.
-    Payload format: [4 bytes: name length] + [name bytes] + [file content]
-    """
     salt  = secrets.token_bytes(SALT_SIZE)
     nonce = secrets.token_bytes(NONCE_SIZE)
     key   = _derive_key(password, salt)
@@ -79,9 +62,6 @@ def _encrypt_data(plaintext: bytes, password: str, filename: str) -> bytes:
 
 
 def _decrypt_data(blob: bytes, password: str) -> tuple[bytes, str]:
-    """Decrypts a stream produced by _encrypt_data.
-    Returns (file content, original filename).
-    """
     if len(blob) < HEADER_SIZE:
         raise ValueError("File too short or corrupted.")
 
@@ -180,7 +160,6 @@ def decrypt(
     output: Optional[Path] = typer.Option(None, "-o", "--output", help="Output file"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite if destination exists"),
 ):
-    """🔓 Decrypt a file produced by 'cipher encrypt'."""
     if output:
         dest: Optional[Path] = output
         if dest.exists() and not overwrite:
@@ -225,7 +204,6 @@ def decrypt(
 def info(
     file: Path = typer.Argument(..., help=".enc file to inspect", exists=True),
 ):
-    """ℹ️  Display metadata of an encrypted file (without decrypting it)."""
     blob = file.read_bytes()
 
     if len(blob) < HEADER_SIZE:
