@@ -15,7 +15,7 @@ from typing import Optional
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import BarColumn, SpinnerColumn, TextColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 app = typer.Typer(
@@ -230,9 +230,16 @@ def encrypt(
     console.print(Panel(f"[bold]Encrypting[/bold] [cyan]{file}[/cyan]", expand=False))
     password = _ask_password(confirm=True)
 
-    strong, warning = _check_password_strength(password)
-    if warning:
-        console.print(f"  {warning}")
+    while True:
+        strong, warning = _check_password_strength(password)
+        if warning:
+            console.print(f"  {warning}")
+            confirm = console.input("  [dim]Continue anyway? [y/N]: [/dim]")
+            if confirm.lower() in ("y", "yes"):
+                break
+            password = _ask_password(confirm=True)
+        else:
+            break
 
     file_size = file.stat().st_size
     is_streaming = file_size > STREAMING_THRESHOLD
