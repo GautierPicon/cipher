@@ -92,7 +92,7 @@ cipher decrypt <file.enc> -o <output> --overwrite
 ### genpass
 ```bash
 cipher genpass
-cipher genpass --length 32
+cipher genpass --length <length>
 cipher genpass --no-copy
 ```
 
