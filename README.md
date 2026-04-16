@@ -1,4 +1,4 @@
-# file-cipher [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.md)
+# cipher [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.md)
 
 CLI file encryption tool based on **AES-256-GCM** and **PBKDF2-SHA256**.
 
@@ -12,14 +12,14 @@ CLI file encryption tool based on **AES-256-GCM** and **PBKDF2-SHA256**.
 
 ## Install cipher on your machine
 
-Download the latest `.whl` from the [releases page](https://codeberg.org/GautierPicon/file_cipher/releases), then:
+Download the latest `.whl` from the [releases page](https://codeberg.org/GautierPicon/cipher/releases), then:
 
 ```bash
 # Install pipx if you don't have it
 pip install pipx
 
 # Install cipher
-pipx install "file-cipher @ file:///path/to/file_cipher-X.X.X-py3-none-any.whl"
+pipx install "cipher @ file:///path/to/cipher-X.X.X-py3-none-any.whl"
 
 # cipher is now available globally
 cipher --help
@@ -30,13 +30,13 @@ cipher --help
 Download the new `.whl` from the releases page, then:
 
 ```bash
-pipx install --force "file-cipher @ file:///path/to/file_cipher-X.X.X-py3-none-any.whl"
+pipx install --force "cipher @ file:///path/to/cipher-X.X.X-py3-none-any.whl"
 ```
 
 ### Uninstall
 
 ```bash
-pipx uninstall file-cipher
+pipx uninstall cipher
 ```
 
 ---
@@ -46,8 +46,8 @@ pipx uninstall file-cipher
 ### Clone the project
 
 ```bash
-git clone https://codeberg.org/GautierPicon/file_cipher.git 
-cd file-cipher
+git clone https://codeberg.org/GautierPicon/cipher.git
+cd cipher
 ```
 
 ### Install dependencies and create environment with uv
@@ -65,7 +65,7 @@ uv run cipher --help
 ### Build the wheel locally
 
 ```bash
-# generates dist/file_cipher-X.X.X-py3-none-any.whl
+# generates dist/cipher-X.X.X-py3-none-any.whl
 uv build
 ```
 
@@ -74,6 +74,7 @@ uv build
 ## Commands reference
 
 ### encrypt
+
 ```bash
 cipher encrypt <file>
 cipher encrypt <file> -o <output>
@@ -82,6 +83,7 @@ cipher encrypt <file> -o <output> --overwrite
 ```
 
 ### decrypt
+
 ```bash
 cipher decrypt <file.enc>
 cipher decrypt <file.enc> -o <output>
@@ -90,6 +92,7 @@ cipher decrypt <file.enc> -o <output> --overwrite
 ```
 
 ### genpass
+
 ```bash
 cipher genpass
 cipher genpass --length <length>
@@ -97,11 +100,13 @@ cipher genpass --no-copy
 ```
 
 ### info
+
 ```bash
 cipher info <file.enc>
 ```
 
 ### help
+
 ```bash
 cipher --help
 cipher encrypt --help
@@ -115,6 +120,7 @@ cipher genpass --help
 ## Usage
 
 ### Generate a strong password
+
 ```bash
 # Generate a 20-character password and copy it to clipboard
 cipher genpass
@@ -124,6 +130,7 @@ cipher genpass --length <value>
 ```
 
 ### Encrypt a file
+
 ```bash
 # Encrypt secret.txt → secret.enc
 cipher encrypt secret.txt
@@ -133,6 +140,7 @@ cipher encrypt rapport.pdf -o vault.enc
 ```
 
 ### Decrypt a file
+
 ```bash
 # Decrypt secret.enc → restores original filename automatically
 cipher decrypt secret.enc
@@ -142,6 +150,7 @@ cipher decrypt vault.enc -o restored_report.pdf
 ```
 
 ### Inspect an encrypted file (without decrypting)
+
 ```bash
 cipher info secret.enc
 ```
@@ -166,16 +175,16 @@ The original filename is stored inside the encrypted payload — it is invisible
 
 ## Security
 
-| Component | Choice | Why |
-|-----------|--------|-----|
-| Encryption | AES-256-GCM | Authenticated (integrity + confidentiality) |
-| KDF | PBKDF2-SHA256 | NIST standard, slows brute-force |
-| Iterations | 480,000 | NIST 2023 recommendation |
-| Salt | 32 random bytes | Protects against rainbow tables |
-| Nonce | 12 random bytes | 96 bits = GCM standard |
+| Component  | Choice          | Why                                         |
+| ---------- | --------------- | ------------------------------------------- |
+| Encryption | AES-256-GCM     | Authenticated (integrity + confidentiality) |
+| KDF        | PBKDF2-SHA256   | NIST standard, slows brute-force            |
+| Iterations | 480,000         | NIST 2023 recommendation                    |
+| Salt       | 32 random bytes | Protects against rainbow tables             |
+| Nonce      | 12 random bytes | 96 bits = GCM standard                      |
 
 ---
 
 ## Feedback
 
-Feedback are welcome! Feel free to open an [issue](https://codeberg.org/GautierPicon/file_cipher/issues) or a [pull request](https://codeberg.org/GautierPicon/file_cipher/pulls) on the Codeberg repository.
+Feedback are welcome! Feel free to open an [issue](https://codeberg.org/GautierPicon/cipher/issues) or a [pull request](https://codeberg.org/GautierPicon/cipher/pulls) on the Codeberg repository.

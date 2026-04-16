@@ -65,8 +65,8 @@ jobs:
 
           ## Assets
 
-          - \`file_cipher-${{ steps.version.outputs.version }}-py3-none-any.whl\` — installable wheel
-          - \`file_cipher-${{ steps.version.outputs.version }}.tar.gz\` — source archive
+          - \`cipher-${{ steps.version.outputs.version }}-py3-none-any.whl\` — installable wheel
+          - \`cipher-${{ steps.version.outputs.version }}.tar.gz\` — source archive
           NOTES
 
           echo "--- release notes ---"

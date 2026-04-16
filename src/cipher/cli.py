@@ -123,7 +123,7 @@ def _decrypt_stream(
             HEADER_FMT, raw_header
         )
         if magic != MAGIC:
-            raise ValueError("This file was not encrypted by file-cipher (invalid magic).")
+            raise ValueError("This file was not encrypted by cipher (invalid magic).")
 
         key = _derive_key(password, salt, iterations)
         aesgcm = AESGCM(key)
@@ -331,7 +331,7 @@ def info(
     )
 
     if magic != MAGIC:
-        console.print("[red]This file was not produced by file-cipher.[/red]")
+        console.print("[red]This file was not produced by cipher.[/red]")
         raise typer.Exit(1)
 
     enc_size = file.stat().st_size

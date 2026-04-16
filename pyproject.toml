@@ -1,5 +1,5 @@
 [project]
-name = "file-cipher"
+name = "cipher"
 version = "0.4.0"
 description = "Command-line tool for file encryption"
 readme = "README.md"
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cipher = "file_cipher.cli:app"
+cipher = "cipher.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.11.6,<0.12.0"]
