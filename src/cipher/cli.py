@@ -24,8 +24,8 @@ app = typer.Typer(
     help="🔐 AES-256-GCM file encryption",
     add_completion=False,
     invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
-app.context_settings = {"help_option_names": ["-h", "--help"]}
 
 console = Console()
 APP_VERSION = get_version("cipher")
@@ -48,7 +48,7 @@ def main(
         False,
         "--version",
         "-v",
-        help="Show version and exit",
+        help="Show version and exit.",
     ),
 ):
     if version:
