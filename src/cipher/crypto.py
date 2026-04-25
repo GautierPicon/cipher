@@ -1,41 +1,68 @@
 import hashlib
+import hmac
 import io
+import os
 import struct
 import secrets
 import tarfile
+import threading
 
-from cryptography.hazmat.primitives import hashes
+from argon2.low_level import hash_secret_raw, Type as Argon2Type
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from pathlib import Path
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MAGIC = b"CIPHER01"
+MAGIC = b"CIPHER0"
 SALT_SIZE = 32
 NONCE_SIZE = 12
-PBKDF2_ITER = 480_000
 KEY_SIZE = 32
-CHUNK_SIZE = 8 * 1024 * 1024
+CHUNK_SIZE = 16 * 1024 * 1024 
 
-HEADER_FMT = f">8sI{SALT_SIZE}s{NONCE_SIZE}sQH"
+ARGON2_TIME_COST = 3
+ARGON2_MEMORY_COST = 65_536
+ARGON2_PARALLELISM = 4
+
+HEADER_FMT = f">8sIII{SALT_SIZE}s{NONCE_SIZE}sQH"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
+
+MAX_NAME_LEN = 255
 
 
 # ── Key derivation ────────────────────────────────────────────────────────────
 
-def derive_key(password: str, salt: bytes, iterations: int = PBKDF2_ITER) -> bytes:
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=KEY_SIZE,
+def derive_key(
+    password: str,
+    salt: bytes,
+    time_cost: int = ARGON2_TIME_COST,
+    memory_cost: int = ARGON2_MEMORY_COST,
+    parallelism: int = ARGON2_PARALLELISM,
+) -> bytes:
+    """Derive a 256-bit key using Argon2id (GPU/ASIC-resistant)."""
+    return hash_secret_raw(
+        secret=password.encode(),
         salt=salt,
-        iterations=iterations,
+        time_cost=time_cost,
+        memory_cost=memory_cost,
+        parallelism=parallelism,
+        hash_len=KEY_SIZE,
+        type=Argon2Type.ID,
     )
-    return kdf.derive(password.encode())
 
 
 def chunk_nonce(base_nonce: bytes, counter: int) -> bytes:
-    return base_nonce[:4] + struct.pack(">Q", counter)
+    """
+    Build a 12-byte per-chunk nonce.
+
+    Layout: base_nonce[0:8]  (64 bits of randomness, never reused)
+            counter[0:4]     (32-bit big-endian chunk index)
+
+    This gives 2^32 chunks per file (~64 TiB at 16 MiB/chunk) while
+    keeping 64 bits of per-file randomness — well above the GCM safety
+    threshold.  The previous implementation only kept 32 bits of
+    randomness (base_nonce[:4]), making nonce collisions plausible.
+    """
+    return base_nonce[:8] + struct.pack(">I", counter)
 
 
 # ── Encrypt ───────────────────────────────────────────────────────────────────
@@ -47,7 +74,7 @@ def encrypt_stream(
     progress_task=None,
     progress=None,
 ) -> str:
-    """Encrypt a file or directory to dest. Returns the SHA-256 hex digest."""
+    """Encrypt a file or directory to *dest*. Returns the SHA-256 hex digest."""
     salt = secrets.token_bytes(SALT_SIZE)
     base_nonce = secrets.token_bytes(NONCE_SIZE)
     key = derive_key(password, salt)
@@ -57,18 +84,28 @@ def encrypt_stream(
 
     if is_dir:
         filename = in_path.name + ".tar.gz"
-        raw_data = _dir_to_tar_bytes(in_path)
-        original_size = len(raw_data)
-        data_source = io.BytesIO(raw_data)
+        data_source, tar_thread = _open_tar_pipe(in_path)
+        original_size = 0
     else:
         filename = in_path.name
         original_size = in_path.stat().st_size
         data_source = open(in_path, "rb")
+        tar_thread = None
 
     name_bytes = filename.encode()
+    if len(name_bytes) > MAX_NAME_LEN:
+        raise ValueError(f"Filename too long ({len(name_bytes)} bytes, max {MAX_NAME_LEN}).")
 
     header = struct.pack(
-        HEADER_FMT, MAGIC, PBKDF2_ITER, salt, base_nonce, original_size, len(name_bytes)
+        HEADER_FMT,
+        MAGIC,
+        ARGON2_TIME_COST,
+        ARGON2_MEMORY_COST,
+        ARGON2_PARALLELISM,
+        salt,
+        base_nonce,
+        original_size,
+        len(name_bytes),
     )
 
     sha256 = hashlib.sha256()
@@ -106,8 +143,9 @@ def encrypt_stream(
                 if progress is not None and progress_task is not None:
                     progress.update(progress_task, advance=len(chunk))
     finally:
-        if not is_dir:
-            data_source.close()
+        data_source.close()
+        if tar_thread is not None:
+            tar_thread.join()
 
     return sha256.hexdigest()
 
@@ -121,22 +159,26 @@ def decrypt_stream(
     progress_task=None,
     progress=None,
 ) -> tuple[str, int]:
-    """Decrypt a .enc file to dest. Returns (original_filename, original_size)."""
+    """Decrypt a .enc file to *dest*. Returns (original_filename, original_size)."""
     with open(in_path, "rb") as fin, open(dest, "wb") as fout:
         raw_header = fin.read(HEADER_SIZE)
         if len(raw_header) < HEADER_SIZE:
             raise ValueError("File too short or corrupted.")
 
-        magic, iterations, salt, base_nonce, original_size, name_len = struct.unpack(
-            HEADER_FMT, raw_header
+        magic, time_cost, memory_cost, parallelism, salt, base_nonce, original_size, name_len = (
+            struct.unpack(HEADER_FMT, raw_header)
         )
-        if magic != MAGIC:
+
+        if not hmac.compare_digest(magic, MAGIC):
             raise ValueError("This file was not encrypted by cipher (invalid magic).")
 
-        key = derive_key(password, salt, iterations)
+        if name_len == 0 or name_len > MAX_NAME_LEN:
+            raise ValueError(f"Invalid filename length in header ({name_len}).")
+
+        key = derive_key(password, salt, time_cost, memory_cost, parallelism)
         aesgcm = AESGCM(key)
 
-        original_name = None
+        original_name: str | None = None
         counter = 0
 
         while True:
@@ -158,6 +200,8 @@ def decrypt_stream(
                 raise ValueError("Wrong password or file has been tampered with.")
 
             if counter == 0:
+                if name_len > len(plaintext):
+                    raise ValueError("Corrupted header: name_len exceeds first chunk size.")
                 original_name = plaintext[:name_len].decode()
                 data = plaintext[name_len:]
             else:
@@ -173,8 +217,24 @@ def decrypt_stream(
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _dir_to_tar_bytes(path: Path) -> bytes:
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        tar.add(path, arcname=path.name)
-    return buf.getvalue()
+def _open_tar_pipe(path: Path) -> tuple[io.RawIOBase, threading.Thread]:
+    """
+    Return a readable file-like object that streams a gzipped tar of *path*,
+    produced in a background thread via an OS pipe.
+
+    This avoids loading the entire directory tree into RAM before encryption
+    begins — the tar is produced and consumed concurrently.
+    """
+    r_fd, w_fd = os.pipe()
+
+    def _produce() -> None:
+        try:
+            with os.fdopen(w_fd, "wb") as w_file:
+                with tarfile.open(fileobj=w_file, mode="w:gz") as tar:
+                    tar.add(path, arcname=path.name)
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=_produce, daemon=True)
+    thread.start()
+    return os.fdopen(r_fd, "rb"), thread

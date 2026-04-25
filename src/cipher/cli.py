@@ -102,9 +102,10 @@ def encrypt(
         transient=True,
     ) as progress:
         task = progress.add_task("Encrypting…", total=file_size)
-        _sha256 = encrypt_stream(file, password, dest, task, progress)
+        sha256 = encrypt_stream(file, password, dest, task, progress)
 
     console.print(f"[green]✓ {label.capitalize()} successfully encrypted → {dest}[/green]")
+    console.print(f"[dim]SHA-256: {sha256}[/dim]")
 
     if genpass:
         clipboard_note = (
@@ -139,34 +140,42 @@ def decrypt(
     tmp_dest = file.parent / f".{secrets.token_hex(8)}.tmp"
 
     try:
-        original_name, _ = decrypt_stream(file, password, tmp_dest)
+        # ── Step 1: decrypt ciphertext into a temporary file ──────────────
+        try:
+            original_name, _ = decrypt_stream(file, password, tmp_dest)
+        except ValueError as e:
+            console.print(f"[red]✗ {e}[/red]")
+            raise typer.Exit(1)
 
+        # ── Step 2: move / extract to final destination ───────────────────
         is_tar = original_name.endswith(".tar.gz")
-    except ValueError as e:
-        console.print(f"[red]✗ {e}[/red]")
-        raise typer.Exit(1)
 
         if is_tar:
             folder_name = original_name[: -len(".tar.gz")]
             dest = output or file.parent / folder_name
 
             if dest.exists() and not overwrite:
-                console.print(f"[yellow]⚠ '{dest}' already exists.[/yellow]")
+                console.print(
+                    f"[yellow]⚠ '{dest}' already exists. Use --overwrite to replace it.[/yellow]"
+                )
                 raise typer.Exit(1)
 
             with tarfile.open(tmp_dest, "r:gz") as tar:
-                tar.extractall(path=file.parent)
+                tar.extractall(path=file.parent, filter="data")
 
             extracted = file.parent / folder_name
-            if str(extracted) != str(dest):
+            if extracted.resolve() != dest.resolve():
                 extracted.rename(dest)
 
             console.print(f"[green]✓ Folder successfully decrypted → {dest}[/green]")
+
         else:
             dest = output or file.parent / original_name
 
             if dest.exists() and not overwrite:
-                console.print(f"[yellow]⚠ '{dest}' already exists.[/yellow]")
+                console.print(
+                    f"[yellow]⚠ '{dest}' already exists. Use --overwrite to replace it.[/yellow]"
+                )
                 raise typer.Exit(1)
 
             tmp_dest.rename(dest)
