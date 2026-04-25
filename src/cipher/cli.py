@@ -1,9 +1,11 @@
 import hashlib
+import io
 import math
 import secrets
 import string
 import struct
 import subprocess
+import tarfile
 
 import typer
 from cryptography.hazmat.primitives import hashes
@@ -74,6 +76,13 @@ def _chunk_nonce(base_nonce: bytes, counter: int) -> bytes:
     return base_nonce[:4] + struct.pack(">Q", counter)
 
 
+def _dir_to_tar_bytes(path: Path) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        tar.add(path, arcname=path.name)
+    return buf.getvalue()
+
+
 def _encrypt_stream(
     in_path: Path,
     password: str,
@@ -86,9 +95,21 @@ def _encrypt_stream(
     key = _derive_key(password, salt)
     aesgcm = AESGCM(key)
 
-    filename = in_path.name
+    is_dir = in_path.is_dir()
+
+    if is_dir:
+        filename = in_path.name + ".tar.gz"
+        if progress is not None and progress_task is not None:
+            console.print("[dim]Archiving folder…[/dim]")
+        raw_data = _dir_to_tar_bytes(in_path)
+        original_size = len(raw_data)
+        data_source = io.BytesIO(raw_data)
+    else:
+        filename = in_path.name
+        original_size = in_path.stat().st_size
+        data_source = open(in_path, "rb")
+
     name_bytes = filename.encode()
-    original_size = in_path.stat().st_size
 
     header = struct.pack(
         HEADER_FMT, MAGIC, PBKDF2_ITER, salt, base_nonce, original_size, len(name_bytes)
@@ -97,36 +118,40 @@ def _encrypt_stream(
     sha256 = hashlib.sha256()
     sha256.update(header)
 
-    with open(in_path, "rb") as fin, open(dest, "wb") as fout:
-        fout.write(header)
+    try:
+        with open(dest, "wb") as fout:
+            fout.write(header)
 
-        first_data = fin.read(CHUNK_SIZE)
-        payload = name_bytes + first_data
-        nonce = _chunk_nonce(base_nonce, 0)
-        ct = aesgcm.encrypt(nonce, payload, None)
-        size_prefix = struct.pack(">I", len(ct))
-        fout.write(size_prefix)
-        fout.write(ct)
-        sha256.update(size_prefix)
-        sha256.update(ct)
-        if progress is not None and progress_task is not None:
-            progress.update(progress_task, advance=len(first_data))
-
-        counter = 1
-        while True:
-            chunk = fin.read(CHUNK_SIZE)
-            if not chunk:
-                break
-            nonce = _chunk_nonce(base_nonce, counter)
-            ct = aesgcm.encrypt(nonce, chunk, None)
+            first_data = data_source.read(CHUNK_SIZE)
+            payload = name_bytes + first_data
+            nonce = _chunk_nonce(base_nonce, 0)
+            ct = aesgcm.encrypt(nonce, payload, None)
             size_prefix = struct.pack(">I", len(ct))
             fout.write(size_prefix)
             fout.write(ct)
             sha256.update(size_prefix)
             sha256.update(ct)
-            counter += 1
             if progress is not None and progress_task is not None:
-                progress.update(progress_task, advance=len(chunk))
+                progress.update(progress_task, advance=len(first_data))
+
+            counter = 1
+            while True:
+                chunk = data_source.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                nonce = _chunk_nonce(base_nonce, counter)
+                ct = aesgcm.encrypt(nonce, chunk, None)
+                size_prefix = struct.pack(">I", len(ct))
+                fout.write(size_prefix)
+                fout.write(ct)
+                sha256.update(size_prefix)
+                sha256.update(ct)
+                counter += 1
+                if progress is not None and progress_task is not None:
+                    progress.update(progress_task, advance=len(chunk))
+    finally:
+        if not is_dir:
+            data_source.close()
 
     return sha256.hexdigest()
 
@@ -270,12 +295,14 @@ def _generate_password(length: int = 32) -> str:
 
 @app.command()
 def encrypt(
-    file: Path = typer.Argument(..., help="File to encrypt", exists=True),
+    file: Path = typer.Argument(..., help="File or folder to encrypt", exists=True),
     output: Optional[Path] = typer.Option(None, "-o", "--output", help="Output file"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite if destination exists"),
     genpass: bool = typer.Option(False, "--genpass", help="Generate a strong random password"),
 ):
-    console.print(Panel(f"[bold]Encrypting[/bold] [cyan]{file}[/cyan]", expand=False))
+    is_dir = file.is_dir()
+    label = "folder" if is_dir else "file"
+    console.print(Panel(f"[bold]Encrypting[/bold] [cyan]{file}[/cyan] [dim]({label})[/dim]", expand=False))
 
     if genpass:
         password = _generate_password()
@@ -283,13 +310,13 @@ def encrypt(
     else:
         password = _ask_password_with_strength_check()
 
-    dest = output or file.with_suffix(".enc")
+    dest = output or Path(str(file).rstrip("/") + ".enc")
 
     if dest.exists() and not overwrite:
         console.print(f"[yellow]⚠ '{dest}' already exists. Use --overwrite to replace it.[/yellow]")
         raise typer.Exit(1)
 
-    file_size = file.stat().st_size
+    file_size = sum(f.stat().st_size for f in file.rglob("*") if f.is_file()) if is_dir else file.stat().st_size
 
     with Progress(
         SpinnerColumn(),
@@ -303,7 +330,7 @@ def encrypt(
         task = progress.add_task("Encrypting…", total=file_size)
         sha256 = _encrypt_stream(file, password, dest, task, progress)
 
-    console.print(f"[green]✓ File successfully encrypted → {dest}[/green]")
+    console.print(f"[green]✓ {label.capitalize()} successfully encrypted → {dest}[/green]")
 
     if genpass:
         clipboard_note = (
@@ -327,7 +354,7 @@ def encrypt(
 @app.command()
 def decrypt(
     file: Path = typer.Argument(..., help=".enc file to decrypt", exists=True),
-    output: Optional[Path] = typer.Option(None, "-o", "--output", help="Output file"),
+    output: Optional[Path] = typer.Option(None, "-o", "--output", help="Output file or folder"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite if destination exists"),
 ):
     console.print(Panel(f"[bold]Decrypting[/bold] [cyan]{file}[/cyan]", expand=False))
@@ -337,19 +364,38 @@ def decrypt(
 
     try:
         original_name, _ = _decrypt_stream(file, password, tmp_dest)
-        dest = output or file.parent / original_name
 
-        if dest.exists() and not overwrite:
-            console.print(f"[yellow]⚠ '{dest}' already exists.[/yellow]")
-            raise typer.Exit(1)
+        is_tar = original_name.endswith(".tar.gz")
 
-        tmp_dest.rename(dest)
+        if is_tar:
+            folder_name = original_name[: -len(".tar.gz")]
+            dest = output or file.parent / folder_name
+
+            if dest.exists() and not overwrite:
+                console.print(f"[yellow]⚠ '{dest}' already exists.[/yellow]")
+                raise typer.Exit(1)
+
+            with tarfile.open(tmp_dest, "r:gz") as tar:
+                tar.extractall(path=file.parent)
+
+            extracted = file.parent / folder_name
+            if str(extracted) != str(dest):
+                extracted.rename(dest)
+
+            console.print(f"[green]✓ Folder successfully decrypted → {dest}[/green]")
+        else:
+            dest = output or file.parent / original_name
+
+            if dest.exists() and not overwrite:
+                console.print(f"[yellow]⚠ '{dest}' already exists.[/yellow]")
+                raise typer.Exit(1)
+
+            tmp_dest.rename(dest)
+            console.print(f"[green]✓ File successfully decrypted → {dest}[/green]")
 
     finally:
         if tmp_dest.exists():
             tmp_dest.unlink()
-
-    console.print(f"[green]✓ File successfully decrypted → {dest}[/green]")
 
 
 if __name__ == "__main__":
