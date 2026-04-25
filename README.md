@@ -77,6 +77,7 @@ uv build
 
 ```bash
 cipher encrypt <file>
+cipher encrypt <file> --genpass
 cipher encrypt <file> -o <output>
 cipher encrypt <file> --overwrite
 cipher encrypt <file> -o <output> --overwrite
@@ -89,14 +90,6 @@ cipher decrypt <file.enc>
 cipher decrypt <file.enc> -o <output>
 cipher decrypt <file.enc> --overwrite
 cipher decrypt <file.enc> -o <output> --overwrite
-```
-
-### genpass
-
-```bash
-cipher genpass
-cipher genpass --length <length>
-cipher genpass --no-copy
 ```
 
 ### info

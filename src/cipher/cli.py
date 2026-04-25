@@ -244,14 +244,44 @@ def _sizeof_fmt(num: int) -> str:
     return f"{num:.1f} PB"
 
 
+def _copy_to_clipboard(text: str) -> bool:
+    for cmd in [["pbcopy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]]:
+        try:
+            subprocess.run(cmd, input=text.encode(), check=True, capture_output=True)
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            continue
+    return False
+
+
+def _generate_password(length: int = 32) -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*-_=+?"
+    required = [
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.digits),
+        secrets.choice("!@#$%^&*-_=+?"),
+    ]
+    rest = [secrets.choice(alphabet) for _ in range(length - len(required))]
+    pool = required + rest
+    secrets.SystemRandom().shuffle(pool)
+    return "".join(pool)
+
+
 @app.command()
 def encrypt(
     file: Path = typer.Argument(..., help="File to encrypt", exists=True),
     output: Optional[Path] = typer.Option(None, "-o", "--output", help="Output file"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite if destination exists"),
+    genpass: bool = typer.Option(False, "--genpass", help="Generate a strong random password"),
 ):
     console.print(Panel(f"[bold]Encrypting[/bold] [cyan]{file}[/cyan]", expand=False))
-    password = _ask_password_with_strength_check()
+
+    if genpass:
+        password = _generate_password()
+        clipboard_ok = _copy_to_clipboard(password)
+    else:
+        password = _ask_password_with_strength_check()
 
     dest = output or file.with_suffix(".enc")
 
@@ -274,6 +304,24 @@ def encrypt(
         sha256 = _encrypt_stream(file, password, dest, task, progress)
 
     console.print(f"[green]✓ File successfully encrypted → {dest}[/green]")
+
+    if genpass:
+        clipboard_note = (
+            "\n[dim]📋 Copied to clipboard.[/dim]"
+            if clipboard_ok
+            else "\n[dim]Could not copy to clipboard.[/dim]"
+        )
+        console.print(
+            Panel(
+                f"[bold yellow]Generated password[/bold yellow]\n\n"
+                f"  [bold white on dark_red] {password} [/bold white on dark_red]\n\n"
+                f"[yellow]⚠  Store this password in a safe place — it cannot be recovered.[/yellow]"
+                f"{clipboard_note}",
+                title="🔑 Keep this safe",
+                border_style="yellow",
+                expand=False,
+            )
+        )
 
 
 @app.command()
