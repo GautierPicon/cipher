@@ -13,7 +13,7 @@ from pathlib import Path
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MAGIC = b"CIPHER0"
+MAGIC = b"CIPHER02"
 SALT_SIZE = 32
 NONCE_SIZE = 12
 KEY_SIZE = 32
