@@ -17,6 +17,8 @@ SALT_SIZE = 32
 NONCE_SIZE = 12
 KEY_SIZE = 32
 CHUNK_SIZE = 16 * 1024 * 1024
+PADDING_BLOCK = 64 * 1024
+PADDING_FLAG = 0x8000_0000
 
 ARGON2_TIME_COST = 3
 ARGON2_MEMORY_COST = 65_536
@@ -27,6 +29,8 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
 MAX_NAME_LEN = 255
 MAX_CT_SIZE = CHUNK_SIZE + 512
+
+FIXED_MTIME = 0
 
 
 def derive_key(
@@ -49,6 +53,16 @@ def derive_key(
 
 def chunk_nonce(base_nonce: bytes, counter: int) -> bytes:
     return base_nonce[:8] + struct.pack(">I", counter)
+
+
+def _pad_size(current_size: int) -> int:
+    remainder = current_size % PADDING_BLOCK
+    return PADDING_BLOCK - remainder if remainder != 0 else 0
+
+
+def _neutralize_metadata(path: Path) -> None:
+    os.utime(path, (FIXED_MTIME, FIXED_MTIME))
+    path.chmod(0o600)
 
 
 def encrypt_stream(
@@ -128,6 +142,19 @@ def encrypt_stream(
                 counter += 1
                 if progress is not None and progress_task is not None:
                     progress.update(progress_task, advance=len(chunk))
+
+            current_size = fout.tell()
+            pad_len = _pad_size(current_size)
+            if pad_len > 0:
+                padding = secrets.token_bytes(pad_len)
+                nonce = chunk_nonce(base_nonce, counter)
+                ct = aesgcm.encrypt(nonce, padding, None)
+                size_prefix = struct.pack(">I", len(ct) | PADDING_FLAG)
+                fout.write(size_prefix)
+                fout.write(ct)
+                sha256.update(size_prefix)
+                sha256.update(ct)
+
     except Exception:
         if tmp_dest.exists():
             tmp_dest.unlink()
@@ -142,7 +169,8 @@ def encrypt_stream(
             tmp_dest.unlink()
         raise error_queue.get_nowait()
 
-    tmp_dest.rename(dest)
+    tmp_dest.replace(dest)
+    _neutralize_metadata(dest)
     return sha256.hexdigest()
 
 
@@ -181,7 +209,10 @@ def decrypt_stream(
             if len(size_buf) < 4:
                 raise ValueError("Truncated chunk size — file may be corrupted.")
 
-            ct_len = struct.unpack(">I", size_buf)[0]
+            raw_size = struct.unpack(">I", size_buf)[0]
+            is_padding = bool(raw_size & PADDING_FLAG)
+            ct_len = raw_size & ~PADDING_FLAG
+
             if ct_len > MAX_CT_SIZE:
                 raise ValueError("Chunk size exceeds maximum — file may be corrupted.")
 
@@ -194,6 +225,9 @@ def decrypt_stream(
                 plaintext = aesgcm.decrypt(nonce, ct, None)
             except Exception:
                 raise ValueError("Wrong password or file has been tampered with.")
+
+            if is_padding:
+                break
 
             if counter == 0:
                 if name_len > len(plaintext):
