@@ -179,8 +179,6 @@ def decrypt(
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
 
-    original_name_preview = header.name_len
-
     password = ask_password(confirm=False)
 
     tmp_dest = file.parent / f".{secrets.token_hex(8)}.tmp"
