@@ -13,7 +13,7 @@ CLI file encryption tool based on **AES-256-GCM** and **Argon2id**.
 
 ## Install cipher on your machine
 
-Download the latest `.whl` from the [releases page](https://codeberg.org/GautierPicon/cipher/releases), then:
+Download the latest `.whl` from the [releases page](https://github.com/GautierPicon/cipher/releases), then:
 
 ```bash
 # Install pipx if you don't have it
@@ -47,7 +47,7 @@ pipx uninstall cipher
 ### Clone the project
 
 ```bash
-git clone https://codeberg.org/GautierPicon/cipher.git
+git clone https://github.com/GautierPicon/cipher.git
 cd cipher
 ```
 
@@ -217,4 +217,4 @@ detected immediately. The filename is authenticated inside the first chunk.
 
 ## Feedback
 
-Feedback is welcome! Feel free to open an [issue](https://codeberg.org/GautierPicon/cipher/issues) or a [pull request](https://codeberg.org/GautierPicon/cipher/pulls) on the Codeberg repository.
+Feedback is welcome! Feel free to open an [issue](https://github.com/GautierPicon/cipher/issues) or a [pull request](https://github.com/GautierPicon/cipher/pulls) on the GitHub repository.

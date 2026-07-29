@@ -9,7 +9,7 @@ on:
 
 jobs:
   check-and-release:
-    runs-on: codeberg-tiny
+    runs-on: ubuntu-latest
 
     permissions:
       contents: write
@@ -41,7 +41,7 @@ jobs:
 
       - name: Install uv
         if: steps.tag_check.outputs.exists == 'false'
-        uses: https://github.com/astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
@@ -80,57 +80,14 @@ jobs:
           echo "--- release notes ---"
           cat /tmp/release_notes.md
 
-      - name: Create tag and release
+      - name: Create release
         if: steps.tag_check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          API="${{ github.server_url }}/api/v1"
-          REPO="${{ github.repository }}"
-          TOKEN="${{ secrets.GITHUB_TOKEN }}"
           TAG="${{ steps.version.outputs.tag }}"
-
-          echo "Creating tag $TAG..."
-
-          # Create tag
-          curl -s -o /tmp/tag_response.json -w "Tag HTTP: %{http_code}\n" \
-            -X POST "$API/repos/$REPO/tags" \
-            -H "Authorization: token $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"tag_name\": \"$TAG\", \"message\": \"Release $TAG\"}"
-
-          cat /tmp/tag_response.json
-
-          # Create release
-          RELEASE_BODY=$(python3 -c "import json; print(json.dumps(open('/tmp/release_notes.md').read()))")
-
-          curl -s -o /tmp/release_response.json -w "Release HTTP: %{http_code}\n" \
-            -X POST "$API/repos/$REPO/releases" \
-            -H "Authorization: token $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"tag_name\": \"$TAG\", \"name\": \"$TAG\", \"body\": $RELEASE_BODY, \"draft\": false, \"prerelease\": false}"
-
-          cat /tmp/release_response.json
-
-          RELEASE_ID=$(python3 -c "
-          import json, sys
-          data = json.load(open('/tmp/release_response.json'))
-
-          if 'id' not in data:
-              print('ERROR:', data, file=sys.stderr)
-              sys.exit(1)
-
-          print(data['id'])
-          ")
-
-          echo "Release id: $RELEASE_ID"
-
-          # Upload wheel
-          curl -s -X POST "$API/repos/$REPO/releases/$RELEASE_ID/assets" \
-            -H "Authorization: token $TOKEN" \
-            -F "attachment=@$(ls dist/*.whl)"
-
-          # Upload source archive
-          curl -s -X POST "$API/repos/$REPO/releases/$RELEASE_ID/assets" \
-            -H "Authorization: token $TOKEN" \
-            -F "attachment=@$(ls dist/*.tar.gz)"
-
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file /tmp/release_notes.md \
+            dist/*.whl dist/*.tar.gz
           echo "✓ Release $TAG published."
