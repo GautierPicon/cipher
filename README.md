@@ -8,6 +8,7 @@ CLI file encryption tool based on **AES-256-GCM** and **Argon2id**.
 - [`cryptography`](https://cryptography.io) — cryptographic primitives
 - [`typer`](https://typer.tiangolo.com) — CLI interface
 - [`rich`](https://rich.readthedocs.io) — terminal display
+- [`textual`](https://textual.textualize.io) — interactive terminal UI
 
 ---
 
@@ -80,6 +81,14 @@ uv build
 
 ## Commands reference
 
+### tui
+
+```bash
+cipher tui
+```
+
+> Running `cipher` without any command also launches the TUI.
+
 ### encrypt
 
 ```bash
@@ -117,6 +126,27 @@ cipher verify --help
 ---
 
 ## Usage
+
+### Interactive mode (TUI)
+
+```bash
+cipher tui
+```
+
+Browse your filesystem, select items with `Space`, then:
+
+| Key | Action |
+|---|---|
+| `Space` | Select / deselect a file or folder (multi-select) |
+| `e` | Encrypt selected items |
+| `d` | Decrypt the highlighted `.enc` file |
+| `v` | Verify the highlighted `.enc` file |
+| `c` | Clear the selection |
+| `q` | Quit |
+
+The encrypt wizard lets you type a password or generate a strong random one
+(copied to the clipboard and cleared after 30 s). Overwrite confirmations,
+progress bars, SHA-256 hashes and errors are displayed in the log panel.
 
 ### Encrypt a file
 
