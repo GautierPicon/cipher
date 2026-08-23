@@ -9,7 +9,7 @@ import sys
 import tarfile
 import tempfile
 import threading
-from typing import Iterator
+from collections.abc import Callable, Iterator
 
 from argon2.low_level import hash_secret_raw, Type as Argon2Type
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -174,8 +174,7 @@ def encrypt_stream(
     in_path: Path,
     password: str,
     dest: Path,
-    progress_task=None,
-    progress=None,
+    on_progress: Callable[[int], None] | None = None,
 ) -> str:
     if in_path.is_dir():
         if not os.access(in_path, os.R_OK | os.X_OK):
@@ -236,8 +235,8 @@ def encrypt_stream(
             fout.write(ct)
             sha256.update(size_prefix)
             sha256.update(ct)
-            if progress is not None and progress_task is not None:
-                progress.update(progress_task, advance=len(first_data))
+            if on_progress is not None:
+                on_progress(len(first_data))
 
             counter = 1
             while True:
@@ -252,8 +251,8 @@ def encrypt_stream(
                 sha256.update(size_prefix)
                 sha256.update(ct)
                 counter += 1
-                if progress is not None and progress_task is not None:
-                    progress.update(progress_task, advance=len(chunk))
+                if on_progress is not None:
+                    on_progress(len(chunk))
 
             current_size = fout.tell()
             pad_len = _pad_size(current_size)
@@ -290,8 +289,7 @@ def decrypt_stream(
     in_path: Path,
     password: str,
     dest: Path,
-    progress_task=None,
-    progress=None,
+    on_progress: Callable[[int], None] | None = None,
 ) -> tuple[str, int]:
     with open(in_path, "rb") as fin, open(dest, "wb") as fout:
         header = _parse_header(fin.read(HEADER_SIZE))
@@ -308,8 +306,8 @@ def decrypt_stream(
                 data = plaintext
 
             fout.write(data)
-            if progress is not None and progress_task is not None:
-                progress.update(progress_task, advance=len(data))
+            if on_progress is not None:
+                on_progress(len(data))
 
     if original_name is None:
         raise ValueError("File contains no chunks — file may be corrupted.")
