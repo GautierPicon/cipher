@@ -1,11 +1,9 @@
-import secrets
-import tarfile
-
-import typer
+from collections.abc import Callable
 from importlib.metadata import version as get_version
 from pathlib import Path
 from typing import List, Optional
 
+import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
@@ -17,13 +15,19 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
-from cipher.crypto import encrypt_stream, decrypt_stream, verify_stream, read_header
 from cipher.password import (
     ask_password,
     ask_password_with_strength_check,
     copy_to_clipboard,
     generate_password,
     schedule_clipboard_clear,
+)
+from cipher.service import (
+    DestinationExistsError,
+    decrypt_file,
+    default_enc_dest,
+    encrypt_path,
+    verify_file,
 )
 from cipher.utils import sizeof_fmt
 
@@ -37,6 +41,12 @@ app = typer.Typer(
 
 console = Console()
 APP_VERSION = get_version("cipher")
+
+
+def _rich_on_progress(progress: Progress, task) -> Callable[[int], None]:
+    def on_progress(advance: int) -> None:
+        progress.update(task, advance=advance)
+    return on_progress
 
 
 @app.callback(invoke_without_command=True)
@@ -54,8 +64,18 @@ def main(
         raise typer.Exit()
 
     if ctx.invoked_subcommand is None:
-        console.print(ctx.get_help())
+        from cipher.tui import CipherApp
+
+        CipherApp().run()
         raise typer.Exit()
+
+
+@app.command()
+def tui():
+    """Launch the interactive terminal interface."""
+    from cipher.tui import CipherApp
+
+    CipherApp().run()
 
 
 @app.command()
@@ -92,10 +112,7 @@ def encrypt(
             expand=False,
         ))
 
-        dest = output or (
-            file.with_suffix(".enc") if not is_dir
-            else Path(str(file).rstrip("/") + ".enc")
-        )
+        dest = output or default_enc_dest(file)
 
         if dest.exists():
             if not overwrite:
@@ -129,7 +146,7 @@ def encrypt(
                 transient=True,
             ) as progress:
                 task = progress.add_task("Encrypting…", total=file_size)
-                sha256 = encrypt_stream(file, password, dest, task, progress)
+                sha256 = encrypt_path(file, password, dest, _rich_on_progress(progress, task))
 
             dest_size = dest.stat().st_size
             console.print(
@@ -173,96 +190,58 @@ def decrypt(
     yes: bool = typer.Option(False, "-y", "--yes", help="Skip overwrite confirmation prompt"),
 ):
     console.print(Panel(f"[bold]Decrypting[/bold] [cyan]{file}[/cyan]", expand=False))
-    try:
-        header = read_header(file)
-    except ValueError as e:
-        console.print(f"[red]✗ {e}[/red]")
-        raise typer.Exit(1)
 
     password = ask_password(confirm=False)
 
-    tmp_dest = file.parent / f".{secrets.token_hex(8)}.tmp"
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        FileSizeColumn(),
+        TransferSpeedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Decrypting…", total=file.stat().st_size)
 
-    try:
-        file_size = file.stat().st_size
+        def confirm(dest: Path) -> bool:
+            progress.stop()
+            answer = console.input(
+                f"  [yellow]⚠ '{dest}' already exists. Overwrite? (y/N): [/yellow]"
+            ).strip().lower()
+            if answer not in ("y", "yes"):
+                console.print("  [dim]Cancelled.[/dim]")
+                return False
+            return True
 
         try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                FileSizeColumn(),
-                TransferSpeedColumn(),
-                console=console,
-                transient=True,
-            ) as progress:
-                task = progress.add_task("Decrypting…", total=file_size)
-                original_name, _ = decrypt_stream(file, password, tmp_dest, task, progress)
+            dest = decrypt_file(
+                file,
+                password,
+                output,
+                _rich_on_progress(progress, task),
+                overwrite=overwrite,
+                confirm_overwrite=confirm if (overwrite and not yes) else None,
+            )
         except ValueError as e:
             console.print(f"[red]✗ {e}[/red]")
             raise typer.Exit(1)
-
-        is_tar = original_name.endswith(".tar.gz")
-
-        if is_tar:
-            folder_name = original_name[: -len(".tar.gz")]
-            dest = output or file.parent / folder_name
-
-            if dest.exists():
-                if not overwrite:
-                    console.print(
-                        f"[yellow]⚠ '{dest}' already exists. Use --overwrite to replace it.[/yellow]"
-                    )
-                    raise typer.Exit(1)
-                if not yes:
-                    answer = console.input(
-                        f"  [yellow]⚠ '{dest}' already exists. Overwrite? (y/N): [/yellow]"
-                    ).strip().lower()
-                    if answer not in ("y", "yes"):
-                        console.print("  [dim]Cancelled.[/dim]")
-                        raise typer.Exit(0)
-
-            extract_root = file.parent.resolve()
-            with tarfile.open(tmp_dest, "r:gz") as tar:
-                for member in tar.getmembers():
-                    member_path = (extract_root / member.name).resolve()
-                    if not str(member_path).startswith(str(extract_root)):
-                        raise ValueError(f"Unsafe path in archive: {member.name}")
-                tar.extractall(path=file.parent, filter="data")
-
-            extracted = file.parent / folder_name
-            if extracted.resolve() != dest.resolve():
-                extracted.rename(dest)
-
-            console.print(f"[green]✓ Folder successfully decrypted → {dest}[/green]")
-
-        else:
-            dest = output or file.parent / original_name
-
-            if dest.exists():
-                if not overwrite:
-                    console.print(
-                        f"[yellow]⚠ '{dest}' already exists. Use --overwrite to replace it.[/yellow]"
-                    )
-                    raise typer.Exit(1)
-                if not yes:
-                    answer = console.input(
-                        f"  [yellow]⚠ '{dest}' already exists. Overwrite? (y/N): [/yellow]"
-                    ).strip().lower()
-                    if answer not in ("y", "yes"):
-                        console.print("  [dim]Cancelled.[/dim]")
-                        raise typer.Exit(0)
-
-            tmp_dest.rename(dest)
-            dest_size = dest.stat().st_size
+        except DestinationExistsError as e:
             console.print(
-                f"[green]✓ File successfully decrypted → {dest}"
-                f" ({sizeof_fmt(dest_size)})[/green]"
+                f"[yellow]⚠ '{e}' already exists. Use --overwrite to replace it.[/yellow]"
             )
+            raise typer.Exit(1)
 
-    finally:
-        if tmp_dest.exists():
-            tmp_dest.unlink()
+    if dest is None:
+        raise typer.Exit(0)
+
+    if dest.is_dir():
+        console.print(f"[green]✓ Folder successfully decrypted → {dest}[/green]")
+    else:
+        console.print(
+            f"[green]✓ File successfully decrypted → {dest}"
+            f" ({sizeof_fmt(dest.stat().st_size)})[/green]"
+        )
 
 
 @app.command()
@@ -273,7 +252,7 @@ def verify(
     password = ask_password(confirm=False)
 
     try:
-        original_name, _ = verify_stream(file, password)
+        original_name = verify_file(file, password)
     except ValueError as e:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
