@@ -11,6 +11,7 @@ dependencies = [
     "argon2-cffi>=23.1.0",
     "cryptography>=46.0.7",
     "rich>=15.0.0",
+    "textual>=8.2.8",
     "typer>=0.24.1",
 ]
 
@@ -24,5 +25,6 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
     "pytest-watch>=4.2.0",
 ]
